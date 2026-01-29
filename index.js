@@ -2,6 +2,9 @@ const express = require("express") // import
 const app = express() // extend express
 const cors = require("cors")
 const cron = require('node-cron');
+const path = require("path");
+const bodyParser = require('body-parser');
+
  
 // allow origin (npm i cors)
 app.use(cors({ //fixed "has been blocked by CORS policy" from client
@@ -9,8 +12,18 @@ app.use(cors({ //fixed "has been blocked by CORS policy" from client
 }))
 
 app.use(express.json())
-app.get("/",(req,res)=>{ res.send("Hello API")})
+app.get("/",(req,res)=>{ res.send("O servidor está ligado!")})
 app.use(express.urlencoded({ extended: true })); // necessário para FormData
+
+// Static file serving for candidates
+app.use("/uploads/alunos", express.static("public/uploads/alunos"));
+
+// Static file serving for PDF documents
+app.use("/uploads/documentos", express.static("public/uploads/documentos")); // Adiciona esta linha para PDFs
+
+// Aumente o limite do corpo da requisição
+app.use(bodyParser.json({ limit: '10mb' })); // 10MB ou o valor desejado
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true })); // para URL-encoded data
 
 
 // just import all

@@ -10,10 +10,10 @@ const criarNomeArquivo = (req, file, cb) => {
 
 const upload = multer({
     storage: multer.diskStorage({
-        destination: (req, file, cb) => cb(null, "public/uploads"), // salva em sub-pasta separada
+        destination: (req, file, cb) => cb(null, "public/uploads/alunos"), // salva em sub-pasta separada
         filename: criarNomeArquivo
     }),
-    limits: { fileSize: 1024 * 1024 * 3 },           // 3 MB
+    limits: { fileSize: 1024 * 1024 * 5 },           // 3 MB
     fileFilter: (req, file, cb) => {
         // Aceita imagens comuns
         if (/image\/(jpeg|jpg|png|webp|gif)/.test(file.mimetype)) {

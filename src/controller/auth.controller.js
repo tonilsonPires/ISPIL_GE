@@ -92,5 +92,18 @@ exports.getPermissionUser = async (id) => {
     return list.map(item => item.codigo); // Retorna os códigos de permissão
 };
 
+exports.getPermissionStudent = async (id) => {
+    const sql = `
+        SELECT p.codigo
+        FROM estudante m
+        INNER JOIN acesso a ON m.acesso_id = a.id
+        INNER JOIN acesso_permissao ap ON a.id = ap.acesso_id
+        INNER JOIN permissao p ON ap.permissao_id = p.id
+        WHERE m.id_estudante = ?`;
 
+    const list = await db.query(sql, [id]);
+    return list.map(item => item.codigo); // Retorna os códigos de permissão
+};
+
+  
 

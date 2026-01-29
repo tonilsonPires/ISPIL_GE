@@ -6,79 +6,162 @@ const { getPermissionUser } = require("./auth.controller");
 
 const getAll = async (req, res) => {
     try {
-        const { page = 1, txtSearch } = req.query;
+        const { page = 1, txtSearch = "" } = req.query;
 
-        const param = [];
         const limitItem = 10;
         const offset = (page - 1) * limitItem;
 
-        const select = `
+        const params = [];
+        let where = " WHERE 1=1 ";
+
+        if (txtSearch.trim()) {
+            where += ` AND (
+                d.nome LIKE ? OR 
+                d.email LIKE ? OR 
+                d.telefone LIKE ? OR
+                di.nome LIKE ? OR
+                a.nome LIKE ?
+            )`;
+            const searchPattern = `%${txtSearch}%`;
+            params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+        }
+
+        // Consulta principal
+        const sql = `
             SELECT d.*, 
                    a.nome AS acesso_nome, 
                    di.nome AS disciplina_nome
-        `;
-
-        const join = `
             FROM docente d
             LEFT JOIN acesso a ON d.acesso_id = a.id
             LEFT JOIN disciplina di ON d.id_disciplina = di.id_disciplina
+            ${where}
+            ORDER BY d.id_docente DESC
+            LIMIT ? OFFSET ?
         `;
 
-        let where = " WHERE 1=1 ";
+        const list = await db.query(sql, [...params, limitItem, offset]);
 
-        if (!isEmptyOrNull(txtSearch)) {
-            where += " AND (d.nome LIKE ? OR d.telefone LIKE ? OR d.email LIKE ?)";
-            param.push(`%${txtSearch}%`);
-            param.push(`%${txtSearch}%`);
-            param.push(`%${txtSearch}%`);
-        }
-
-        const order = " ORDER BY d.id_docente DESC ";
-        const limit = ` LIMIT ? OFFSET ?`;
-
-        const sql = select + join + where + order + limit;
-
-        const list = await db.query(sql, [...param, limitItem, offset]);
-
-        const countQuery = `SELECT COUNT(*) AS total ${join} ${where}`;
-        const countResult = await db.query(countQuery, param);
+        // Total de registros para paginação
+        const countQuery = `
+            SELECT COUNT(*) AS total
+            FROM docente d
+            LEFT JOIN acesso a ON d.acesso_id = a.id
+            LEFT JOIN disciplina di ON d.id_disciplina = di.id_disciplina
+            ${where}
+        `;
+        const countResult = await db.query(countQuery, params);
         const totalRecord = countResult[0]?.total || 0;
-
-        const acessoList = await db.query("SELECT * FROM acesso");
-        const disciplinaList = await db.query("SELECT * FROM disciplina");
 
         res.json({
             list,
             totalRecord,
-            acessoList,
-            disciplinaList,
-            queryData: req.query,
+            page: parseInt(page),
+            limit: limitItem,
         });
-    } catch (e) {
-        console.error(e);
-        res.status(500).send({
-            message: 'Internal Error!',
-            error: e
-        });
+
+    } catch (error) {
+        console.error("Erro ao buscar docentes:", error);
+        res.status(500).json({ error: true, message: "Erro interno do servidor." });
     }
 };
 
 const getOne = (req, res) => {
-    const id = req.params.id;
-    const sql = "SELECT * FROM docente WHERE id_docente = ?";
-    db.query(sql, [id], (error, row) => {
-        if (error) {
-            res.json({
-                message: error,
-                error: true
-            });
-        } else {
-            res.json({
-                list: row
-            });
-        }
+  const { id } = req.params;
+
+  if (!id || isNaN(id)) {
+    return res.status(400).json({
+      error: true,
+      message: "ID do docente inválido."
     });
+  }
+
+  const sql = `
+    SELECT 
+        d.id_docente,
+        d.nome AS nome_docente,
+        d.email,
+        d.telefone,
+        d.titulo,
+
+        dis.id_disciplina,
+        dis.nome AS nome_disciplina,
+        dis.codigo AS codigo_disciplina,
+
+        c.id_curso,
+        c.nome AS nome_curso,
+        c.grau,
+
+        dep.id_departamento,
+        dep.nome AS nome_departamento,
+        dep.sigla,
+
+        t.id_turma,
+        t.codigo_turma,
+        t.ano,
+        t.semestre
+    FROM docente d
+    INNER JOIN disciplina dis ON dis.id_disciplina = d.id_disciplina
+    INNER JOIN curso c ON c.id_curso = dis.id_curso
+    INNER JOIN departamento dep ON dep.id_departamento = c.id_departamento
+    LEFT JOIN turma t ON t.id_docente = d.id_docente
+    WHERE d.id_docente = ?;
+  `;
+
+  db.query(sql, [id], (error, rows) => {
+    if (error) {
+      console.error("Erro ao buscar docente:", error);
+      return res.status(500).json({
+        error: true,
+        message: "Erro interno ao buscar o docente."
+      });
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        error: true,
+        message: "Docente não encontrado."
+      });
+    }
+
+    // Organizar os dados
+    const docente = {
+      id_docente: rows[0].id_docente,
+      nome: rows[0].nome_docente,
+      email: rows[0].email,
+      telefone: rows[0].telefone,
+      titulo: rows[0].titulo,
+      disciplina: {
+        id_disciplina: rows[0].id_disciplina,
+        nome: rows[0].nome_disciplina,
+        codigo: rows[0].codigo_disciplina,
+      },
+      curso: {
+        id_curso: rows[0].id_curso,
+        nome: rows[0].nome_curso,
+        grau: rows[0].grau,
+      },
+      departamento: {
+        id_departamento: rows[0].id_departamento,
+        nome: rows[0].nome_departamento,
+        sigla: rows[0].sigla,
+      },
+      turmas: rows
+        .filter(r => r.id_turma !== null)
+        .map(r => ({
+          id_turma: r.id_turma,
+          codigo_turma: r.codigo_turma,
+          ano: r.ano,
+          semestre: r.semestre,
+        }))
+    };
+
+    return res.status(200).json({
+      error: false,
+      data: docente
+    });
+  });
 };
+
 
 const create = (req, res) => {
     const {
@@ -167,44 +250,69 @@ const update = (req, res) => {
     } = req.body;
 
     const message = {};
-    if (isEmptyOrNull(id_docente)) { message.id_docente = "id_docente é obrigatório!"; }
-    if (isEmptyOrNull(nome)) { message.nome = "nome é obrigatório!"; }
-    if (isEmptyOrNull(email)) { message.email = "email é obrigatório!"; }
-    if (isEmptyOrNull(acesso_id)) { message.acesso_id = "acesso_id é obrigatório!"; }
-    if (isEmptyOrNull(id_disciplina)) { message.id_disciplina = "id_disciplina é obrigatório!"; }
+
+    if (isEmptyOrNull(id_docente)) message.id_docente = "id_docente é obrigatório!";
+    if (isEmptyOrNull(nome)) message.nome = "nome é obrigatório!";
+    if (isEmptyOrNull(email)) message.email = "email é obrigatório!";
+    if (isEmptyOrNull(acesso_id)) message.acesso_id = "acesso_id é obrigatório!";
+    if (isEmptyOrNull(id_disciplina)) message.id_disciplina = "id_disciplina é obrigatório!";
 
     if (Object.keys(message).length > 0) {
         return res.json({
             error: true,
-            message: message
+            message
         });
     }
 
-    const sql = `
-        UPDATE docente 
-        SET nome = ?, imagem = ?, titulo = ?, email = ?, telefone = ?, 
-            acesso_id = ?, id_disciplina = ? 
-        WHERE id_docente = ?`;
-    
+    // 👉 Captura da imagem enviada pelo Multer
+    let imagem = null;
+    if (req.file) {
+        imagem = req.file.filename;
+    }
+
+    // 👉 SQL dinâmico (só atualiza imagem se foi enviada)
+    let sql = `
+        UPDATE docente SET
+            nome = ?,
+            titulo = ?,
+            email = ?,
+            telefone = ?,
+            acesso_id = ?,
+            id_disciplina = ?
+    `;
+
     const param_sql = [
-        nome, imagem, titulo, email, telefone, 
-        acesso_id, id_disciplina, id_docente
+        nome,
+        titulo,
+        email,
+        telefone,
+        acesso_id,
+        id_disciplina
     ];
+
+    if (imagem) {
+        sql += ", imagem = ?";
+        param_sql.push(imagem);
+    }
+
+    sql += " WHERE id_docente = ?";
+    param_sql.push(id_docente);
 
     db.query(sql, param_sql, (error, row) => {
         if (error) {
-            res.json({
+            return res.json({
                 error: true,
                 message: error
             });
-        } else {
-            res.json({
-                message: row.affectedRows ? "Atualizado com sucesso!" : "Dados não encontrados!",
-                data: row
-            });
         }
+
+        res.json({
+            message: row.affectedRows ? "Atualizado com sucesso!" : "Docente não encontrado!",
+            data: row
+        });
     });
 };
+
 
 const remove = (req, res) => {
     const { id } = req.params;
